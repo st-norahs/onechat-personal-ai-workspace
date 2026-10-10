@@ -1,0 +1,7 @@
+{
+  "name": "onechat-personal-ai-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": { "start": "node server.mjs", "build": "node --check src/main.js" }
+}
