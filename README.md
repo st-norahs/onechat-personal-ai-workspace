@@ -10,7 +10,7 @@ OneChat is a personal, local-first workspace for conversations across AI provide
 
 Without a Gateway key, OneChat still works for local chat drafts and history, but it does not invent demo model answers. The server reads the key from `.env`; the browser never receives it. The key grants billable model access, so keep `.env` private. The server binds to `127.0.0.1` for local use.
 
-The service worker and offline cache work on localhost and HTTPS. Browser storage is device-specific and can be cleared by the browser. An export is JSON, not encrypted; do not put it in Drive or another shared location until encrypted backup is implemented. Local browser storage is not encrypted against someone who can access your unlocked device or browser profile.
+The service worker and offline cache work on localhost and HTTPS. Browser storage is device-specific and can be cleared by the browser. Backups are encrypted in the browser with AES-GCM-256 and a PBKDF2-HMAC-SHA-256 key derived using 600,000 iterations before download; store the passphrase separately. Import asks before replacing the conversations on the current device. Local browser storage is still not encrypted against someone who can access your unlocked device or browser profile. Drive upload is manual; OneChat does not yet connect to Drive or sync automatically.
 
 Auto routing is a transparent keyword-based task heuristic: research and current-information prompts prefer Perplexity, code prompts prefer Claude, image/audio prompts prefer Gemini, reasoning prompts prefer OpenAI, and writing prompts prefer Claude. It then ranks the currently available models by catalog names. Review the selected provider and model above the conversation; choosing a provider pill overrides Auto. This is a practical default, not an independent benchmark of model quality.
 
@@ -19,7 +19,8 @@ Auto routing is a transparent keyword-based task heuristic: research and current
 - Chat workspace with six provider choices: OpenAI, Anthropic, Google Gemini, xAI, DeepSeek, and Perplexity.
 - Live model catalog and streamed chat via Vercel AI Gateway when configured.
 - Dark interface and Auto routing by task; manual provider/model selection remains available.
-- Conversation list, new chat, search, copy, local draft export, mobile layout, and offline status.
+- Conversation list, new chat, search, copy, mobile layout, and offline status.
+- Encrypted backup export/import for moving conversations between devices.
 - PWA shell caching and local browser storage.
 - Review-before-sharing draft flow. No account sign-up, publishing, or external action happens in this prototype.
 
@@ -32,7 +33,7 @@ No app can honestly promise that it cannot be hacked. A responsible release need
 ## Suggested next milestones
 
 1. Add authenticated user sessions and redacted logs before making the backend public.
-2. Add browser-side encryption and encrypted export/import before enabling Drive backup.
+2. Add optional encryption for local browser storage and automatic Drive backup/sync.
 3. Add shared prompts, side-by-side answers, research folders, citations, file ingestion, and model-specific tools.
 4. Add OAuth integrations individually, with scopes shown to the user and confirmation before publishing or changing accounts.
 5. Deploy the static PWA over HTTPS and the API separately. Drive can be an optional backup destination through the Google Drive API.
