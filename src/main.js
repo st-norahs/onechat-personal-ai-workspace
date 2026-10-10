@@ -1,35 +1,59 @@
 const providers = [
-  { id: 'openai', name: 'ChatGPT', model: 'GPT-5.1', mark: '✳', color: '#5aa987', desc: 'Reasoning, writing and coding' },
-  { id: 'claude', name: 'Claude', model: 'Claude Sonnet 5', mark: '✳', color: '#d58a5a', desc: 'Thoughtful writing and analysis' },
-  { id: 'gemini', name: 'Gemini', model: 'Gemini 3.8 Flash', mark: '✦', color: '#6189d9', desc: 'Multimodal and long context' },
-  { id: 'grok', name: 'Grok', model: 'Grok 4.7', mark: '𝕏', color: '#242424', desc: 'Live web and real-time answers' },
-  { id: 'deepseek', name: 'DeepSeek', model: 'DeepSeek V4 Flash', mark: '◈', color: '#4f83cc', desc: 'Strong reasoning, efficient' },
-  { id: 'perplexity', name: 'Perplexity', model: 'Sonar', mark: '⌕', color: '#34a9a1', desc: 'Research with cited sources' },
+  { id: 'openai', name: 'ChatGPT', mark: '✳', color: '#5aa987', desc: 'OpenAI models' },
+  { id: 'claude', name: 'Claude', mark: '✳', color: '#d58a5a', desc: 'Anthropic models' },
+  { id: 'gemini', name: 'Gemini', mark: '✦', color: '#6189d9', desc: 'Google models' },
+  { id: 'grok', name: 'Grok', mark: '𝕏', color: '#242424', desc: 'xAI models' },
+  { id: 'deepseek', name: 'DeepSeek', mark: '◈', color: '#4f83cc', desc: 'DeepSeek models' },
+  { id: 'perplexity', name: 'Perplexity', mark: '⌕', color: '#34a9a1', desc: 'Perplexity models' },
 ];
-
-const demoReplies = {
-  openai: 'Absolutely. I’d start with a small, reliable first version: one chat space, a model switcher, saved conversations, and a clear boundary between what stays on your device and what gets sent to a model provider.\n\nFor anything that can publish, post, or change an account, the app should prepare the action and let you review it before it happens.',
-  claude: 'A good personal AI workspace should feel simple on the surface and careful underneath. Keep conversations on your device by default, make provider connections explicit, and use a separate approval step whenever an action could affect an account or another person.\n\nI’d build the chat and offline experience first, then connect provider APIs through a small secured service.',
-  gemini: 'Here’s a practical first version:\n\n1. A unified chat with six model choices.\n2. Local conversation history that works offline.\n3. An encrypted export you can place in Drive for backup.\n4. Provider connections managed through a secure server.\n5. A review screen for publishing or account actions.\n\nThat gives you something useful quickly while keeping the security story honest.',
-  grok: 'Yep — one home base for the models, with the useful stuff around them: chats, research, files, offline drafts, and a review step before anything gets posted. The catch is that Drive is great for storing your encrypted backup, but it isn’t an app server. We’ll need a small hosted service for secure API connections.',
-  deepseek: 'I’d separate this into three pieces: a local-first app, a small API gateway that holds provider credentials, and encrypted Drive backups. Offline, the app can still open saved chats and let you draft. Online, the gateway routes requests to the selected model.\n\nNo setup can guarantee that software is impossible to exploit, but we can reduce risk with least-privilege access, encryption, and regular dependency updates.',
-  perplexity: 'A sensible architecture is local-first storage for private drafts, encrypted backups in your Google Drive, and a backend that proxies model requests so API keys never ship in the app. You’ll still need an account and API key with each provider you want to use.\n\nI can help build that in stages, starting with this working interface and then connecting real providers.',
-};
 
 const starterThreads = [
   { id: 'welcome', title: 'Your AI workspace, together', provider: 'openai', updated: 'Just now', messages: [
-    { role: 'assistant', text: 'Hi! This is your private AI workspace. Pick a model above, ask a question, or start with one of these ideas.\n\nYou’re in offline demo mode right now. Your drafts and chats are saved on this device; connect provider accounts later to get live answers.' }
+    { role: 'assistant', text: 'Hi! This is your personal AI workspace. Pick a provider above, ask a question, or start with one of these ideas.\n\nChats and drafts save in this browser. To send live requests, configure the server-side AI Gateway key first.' }
   ] },
   { id: 'app-ideas', title: 'Ideas for the app', provider: 'claude', updated: 'Yesterday', messages: [{ role: 'assistant', text: 'A few things we could build into your workspace: shared prompts, side-by-side model answers, research folders, and encrypted backups.' }] },
   { id: 'trip-plan', title: 'Plan a weekend away', provider: 'perplexity', updated: 'Monday', messages: [{ role: 'assistant', text: 'Tell me where you’re thinking of going and what kind of trip you enjoy. I can help make a first draft here; live research will be available when connected.' }] },
 ];
 
-const state = { threads: read('onechat.threads', starterThreads), active: read('onechat.active', 'welcome'), provider: read('onechat.provider', 'openai'), online: navigator.onLine, modal: null, toast: '' };
+const state = { threads: read('onechat.threads', starterThreads), active: read('onechat.active', 'welcome'), provider: read('onechat.provider', 'openai'), autoRoute: read('onechat.autoRoute', true), lastRoute: null, selectedModels: read('onechat.models', {}), catalog: {}, gatewayConfigured: false, online: navigator.onLine, modal: null, toast: '' };
 function read(key, fallback) { try { const value = localStorage.getItem(key); return value ? JSON.parse(value) : fallback; } catch { return fallback; } }
-function persist() { localStorage.setItem('onechat.threads', JSON.stringify(state.threads)); localStorage.setItem('onechat.active', JSON.stringify(state.active)); localStorage.setItem('onechat.provider', JSON.stringify(state.provider)); }
+function persist() { localStorage.setItem('onechat.threads', JSON.stringify(state.threads)); localStorage.setItem('onechat.active', JSON.stringify(state.active)); localStorage.setItem('onechat.provider', JSON.stringify(state.provider)); localStorage.setItem('onechat.models', JSON.stringify(state.selectedModels)); localStorage.setItem('onechat.autoRoute', JSON.stringify(state.autoRoute)); }
 function esc(value='') { return String(value).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
 function getThread() { return state.threads.find(thread => thread.id === state.active) || state.threads[0]; }
 function model(id) { return providers.find(item => item.id === id) || providers[0]; }
+function selectedModel() { return state.selectedModels[state.provider] || ''; }
+function rankModel(item) {
+ const value=`${item.name} ${item.id}`.toLowerCase();let score=0;
+ if(/opus|pro|reasoner|deep.?research|codex|thinking|ultra/.test(value))score+=8;
+ if(/sonnet|flagship|advanced/.test(value))score+=5;
+ if(/mini|flash|nano|haiku|lite|small|fast/.test(value))score-=6;
+ const version=value.match(/(?:^|[- .])(?:gpt-|claude-|gemini-)?(\d+(?:\.\d+)?)/);
+ if(version)score+=Math.min(Number(version[1]),20)/5;
+ if(/preview|experimental|beta/.test(value))score-=1;
+ return score;
+}
+function chooseRoute(prompt) {
+ const task=prompt.toLowerCase();let preferred='openai';
+ if(/\b(research|sources|citations?|references?|web|news|today|current|latest|recent|compare evidence)\b/.test(task))preferred='perplexity';
+ else if(/\b(image|picture|photo|diagram|screenshot|audio|voice|video|visual|multimodal)\b/.test(task))preferred='gemini';
+ else if(/\b(code|coding|program|debug|bug|stack trace|function|typescript|javascript|python|repository|repo|software)\b/.test(task))preferred='claude';
+ else if(/\b(math|prove|proof|logic|reason|complex|analyze|analysis|architecture|algorithm)\b/.test(task))preferred='openai';
+ else if(/\b(write|writing|edit|rewrite|story|essay|brainstorm|tone|summari[sz]e)\b/.test(task))preferred='claude';
+ const providerOrder=[...new Set([preferred,'openai','claude','gemini','deepseek','perplexity','grok'])];
+ for(const provider of providerOrder){const modelChoice=[...(state.catalog[provider]||[])].sort((a,b)=>rankModel(b)-rankModel(a))[0];if(modelChoice)return{provider,model:modelChoice.id,label:modelChoice.name}}
+ return null;
+}
+async function loadCatalog() {
+ try {
+  const status = await fetch('/api/status').then(r=>r.json()); state.gatewayConfigured = status.configured;
+  if (state.gatewayConfigured) {
+   state.catalog = await fetch('/api/models').then(async r=>{const data=await r.json();if(!r.ok)throw new Error(data.error||'Could not load models');return data});
+   for (const provider of providers) if (state.catalog[provider.id]?.length && !state.catalog[provider.id].some(item=>item.id===state.selectedModels[provider.id])) state.selectedModels[provider.id]=state.catalog[provider.id][0].id;
+   persist();
+  }
+ } catch { state.gatewayConfigured = false; }
+ render();
+}
 function icon(name, size=18) {
  const paths={grid:'<rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/>',plus:'<path d="M12 5v14M5 12h14"/>',search:'<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>',settings:'<path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z"/><path d="m19.4 15 .1.1a1.7 1.7 0 1 1-2.4 2.4l-.1-.1a1.7 1.7 0 0 0-2.9 1.2v.3a1.7 1.7 0 1 1-3.4 0v-.2a1.7 1.7 0 0 0-2.9-1.2l-.1.1a1.7 1.7 0 1 1-2.4-2.4l.1-.1a1.7 1.7 0 0 0-1.2-2.9h-.3a1.7 1.7 0 1 1 0-3.4h.2a1.7 1.7 0 0 0 1.2-2.9l-.1-.1A1.7 1.7 0 1 1 7.7 3.3l.1.1a1.7 1.7 0 0 0 2.9-1.2v-.3a1.7 1.7 0 1 1 3.4 0v.2a1.7 1.7 0 0 0 2.9 1.2l.1-.1a1.7 1.7 0 1 1 2.4 2.4l-.1.1a1.7 1.7 0 0 0 1.2 2.9h.3a1.7 1.7 0 1 1 0 3.4h-.2a1.7 1.7 0 0 0-1.2 2.9Z"/>',cloud:'<path d="M20 16.2A4.5 4.5 0 0 0 18.5 7h-1A7 7 0 0 0 4 9a5 5 0 0 0 .5 10H18a4 4 0 0 0 2-2.8Z"/>',arrow:'<path d="M7 17 17 7M7 7h10v10"/>',paperclip:'<path d="m21 11.5-8.5 8.5a6 6 0 0 1-8.5-8.5l9-9a4 4 0 0 1 5.7 5.7l-9 9a2 2 0 0 1-2.8-2.8l8.5-8.5"/>',globe:'<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18m0-18a15 15 0 0 0 0 18"/>',lock:'<rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 1 1 8 0v3"/>',menu:'<path d="M4 6h16M4 12h16M4 18h16"/>',send:'<path d="m22 2-7 20-4-9-9-4 20-7ZM22 2 11 13"/>',copy:'<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/>',check:'<path d="m5 12 4 4L19 6"/>',close:'<path d="m18 6-12 12M6 6l12 12"/>'};
  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name]||''}</svg>`;
@@ -50,11 +74,11 @@ function render() {
   <header class="topbar"><button class="icon-button menu-button" data-action="sidebar">${icon('menu')}</button><div class="breadcrumbs"><span>Workspace</span><span class="crumb-slash">/</span><strong>${esc(thread?.title||'New chat')}</strong></div><div class="top-actions"><span class="connection ${state.online?'':'offline'}"><i></i>${state.online?'Online':'Offline'}</span><button class="share-button" data-action="share">${icon('arrow',15)}<span>Share</span></button><button class="icon-button top-more" data-action="settings">${icon('settings',17)}</button></div></header>
   <section class="chat-scroll" id="chatScroll"><div class="chat-column">
    <div class="welcome-heading"><div class="eyebrow"><span class="eyebrow-line"></span> YOUR PERSONAL AI SPACE</div><h1>${thread?.id==='welcome'?'Good to have you here.':'Let’s pick up where you left off.'}</h1><p>One calm place to think, make, and get things done.</p></div>
-   <div class="model-row"><span class="model-label">CHOOSE A MODEL</span><div class="model-pills">${providers.map(p=>`<button class="model-pill ${state.provider===p.id?'chosen':''}" data-provider="${p.id}" style="--provider:${p.color}"><span class="model-glyph">${p.mark}</span><span>${p.name}</span></button>`).join('')}<button class="model-manage" data-action="settings">Manage</button></div></div>
+   <div class="model-row"><span class="model-label">CHOOSE A MODEL</span><div class="model-pills"><button class="model-pill auto-pill ${state.autoRoute?'chosen':''}" data-auto-route="true"><span class="model-glyph">✦</span><span>Auto</span></button>${providers.map(p=>`<button class="model-pill ${!state.autoRoute&&state.provider===p.id?'chosen':''}" data-provider="${p.id}" style="--provider:${p.color}"><span class="model-glyph">${p.mark}</span><span>${p.name}</span></button>`).join('')}<button class="model-manage" data-action="settings">Manage</button></div><select class="model-select" id="modelSelect" aria-label="Choose a model" ${!state.gatewayConfigured||state.autoRoute?'disabled':''}>${(state.catalog[state.provider]||[]).length?(state.catalog[state.provider]||[]).map(item=>`<option value="${esc(item.id)}" ${selectedModel()===item.id?'selected':''}>${esc(item.name)}</option>`).join(''):`<option>${state.gatewayConfigured?'No models found':'Add Gateway key to load models'}</option>`}</select><span class="auto-caption">${state.autoRoute?(state.lastRoute?`Last used: ${esc(state.lastRoute.label)}`:'Auto matches each prompt to a task and model'):`Manual: ${esc(model(state.provider).name)}`}</span></div>
    <div class="messages" id="messages">${thread?.messages.map((m,i)=>messageMarkup(m,i)).join('')||''}</div>
    ${thread?.messages.length===1 && thread.id==='welcome'?`<div class="suggestions"><button data-prompt="Help me plan a personal project, one step at a time."><span class="suggestion-icon sage">✳</span><span><strong>Plan a project</strong><small>Turn an idea into next steps</small></span>${icon('arrow',15)}</button><button data-prompt="Help me research a topic and compare a few perspectives."><span class="suggestion-icon peach">⌕</span><span><strong>Explore a question</strong><small>Research with more than one model</small></span>${icon('arrow',15)}</button><button data-prompt="Help me write a clear, warm message about…"><span class="suggestion-icon lilac">✎</span><span><strong>Write something</strong><small>Start a draft you can shape</small></span>${icon('arrow',15)}</button></div>`:''}
   </div></section>
-  <div class="composer-wrap"><div class="composer" id="composer"><textarea id="prompt" rows="1" placeholder="Message ${model(state.provider).name}…" aria-label="Message"></textarea><div class="composer-toolbar"><div class="composer-tools"><button class="tool-button" data-action="attach" title="Add a file">${icon('paperclip',16)}<span>Attach</span></button><button class="tool-button web-tool" data-action="web" title="Web search">${icon('globe',16)}<span>Web search</span><i></i></button></div><button class="send-button" id="send" data-action="send" aria-label="Send message">${icon('send',16)}</button></div></div><div class="composer-note">${icon('lock',11)} Your chats stay on this device in demo mode. AI can make mistakes.</div></div>
+  <div class="composer-wrap"><div class="composer" id="composer"><textarea id="prompt" rows="1" placeholder="Message ${model(state.provider).name}…" aria-label="Message"></textarea><div class="composer-toolbar"><div class="composer-tools"><button class="tool-button" data-action="attach" title="Add a file">${icon('paperclip',16)}<span>Attach</span></button><button class="tool-button web-tool" data-action="web" title="Web search">${icon('globe',16)}<span>Web search</span><i></i></button></div><button class="send-button" id="send" data-action="send" aria-label="Send message">${icon('send',16)}</button></div></div><div class="composer-note">${icon('lock',11)} Chats save on this device; live prompts go through Vercel AI Gateway to the selected model.</div></div>
  </main>
  ${state.modal?modalMarkup():''}${state.toast?`<div class="toast">${icon('check',15)} ${esc(state.toast)}</div>`:''}
  </div>`;
@@ -62,17 +86,19 @@ function render() {
 }
 function messageMarkup(message,index) {
  const p=message.role==='assistant'?model(message.provider||state.provider):null;
- return `<article class="message ${message.role}" data-message="${index}"><div class="message-avatar ${message.role==='assistant'?'ai-avatar':''}" style="${p?`--provider:${p.color}`:''}">${p?p.mark:'Y'}</div><div class="message-body"><div class="message-meta"><strong>${message.role==='user'?'You':p?.name||'OneChat'}</strong><span>${message.role==='assistant'?p?.model||'Assistant':'Just now'}</span></div><div class="message-text">${esc(message.text).split('\n\n').map(block=>`<p>${block.replace(/\n/g,'<br>')}</p>`).join('')}</div>${message.role==='assistant'?`<div class="message-actions"><button data-copy="${index}" title="Copy response">${icon('copy',14)} Copy</button><button data-action="save" title="Save response">${icon('check',14)} Save</button><button data-action="post" title="Prepare a post">${icon('arrow',14)} Use in a post</button></div>`:''}</div></article>`;
+ return `<article class="message ${message.role}" data-message="${index}"><div class="message-avatar ${message.role==='assistant'?'ai-avatar':''}" style="${p?`--provider:${p.color}`:''}">${p?p.mark:'Y'}</div><div class="message-body"><div class="message-meta"><strong>${message.role==='user'?'You':p?.name||'OneChat'}</strong><span>${message.role==='assistant'?esc(message.modelName||'AI response'):'Just now'}</span></div><div class="message-text">${esc(message.text).split('\n\n').map(block=>`<p>${block.replace(/\n/g,'<br>')}</p>`).join('')}</div>${message.role==='assistant'?`<div class="message-actions"><button data-copy="${index}" title="Copy response">${icon('copy',14)} Copy</button><button data-action="save" title="Save response">${icon('check',14)} Save</button><button data-action="post" title="Prepare a post">${icon('arrow',14)} Use in a post</button></div>`:''}</div></article>`;
 }
 function modalMarkup() {
- if(state.modal==='settings')return `<div class="modal-backdrop" data-action="dismiss"><section class="modal settings-modal" role="dialog" aria-modal="true"><div class="modal-head"><div><div class="eyebrow">YOUR WORKSPACE</div><h2>Settings & connections</h2></div><button class="icon-button" data-action="dismiss">${icon('close')}</button></div><div class="notice-card"><span class="notice-icon">${icon('lock',18)}</span><div><strong>Your data stays yours</strong><p>Chats live in this browser on this device. Connect a provider to use its API; messages you send are then handled under that provider’s terms.</p></div></div><div class="settings-section"><div class="section-title"><div><h3>AI providers</h3><p>Bring your own provider account and API access.</p></div><span class="badge">${providers.length} supported</span></div>${providers.map(p=>`<div class="provider-row"><span class="provider-avatar" style="--provider:${p.color}">${p.mark}</span><span class="provider-info"><strong>${p.name}</strong><small>${p.desc} · ${p.model}</small></span><button class="connect-button" data-connect="${p.id}">Connect</button></div>`).join('')}</div><div class="settings-section"><div class="section-title"><div><h3>Backup & access</h3><p>Keep a portable, encrypted copy of your conversations.</p></div></div><div class="backup-row"><div class="backup-symbol">${icon('cloud',18)}</div><div class="provider-info"><strong>Google Drive backup</strong><small>Save an encrypted export you control</small></div><button class="connect-button secondary" data-action="backup">Export</button></div><div class="inline-tip">Google Drive stores your backup; a secure hosted service is needed for live multi-device sync and protected API keys.</div></div><div class="settings-footer">Offline access is available for saved conversations and drafts. Model replies need an internet connection.</div></section></div>`;
+ if(state.modal==='settings')return `<div class="modal-backdrop" data-action="dismiss"><section class="modal settings-modal" role="dialog" aria-modal="true"><div class="modal-head"><div><div class="eyebrow">YOUR WORKSPACE</div><h2>Settings & connections</h2></div><button class="icon-button" data-action="dismiss">${icon('close')}</button></div><div class="notice-card"><span class="notice-icon">${icon('lock',18)}</span><div><strong>${state.gatewayConfigured?'Live model gateway is configured':'Live models need a server key'}</strong><p>Your conversations save in this browser. When you send a prompt, it goes to Vercel AI Gateway and the selected model provider. Their terms and retention practices apply.</p></div></div><div class="settings-section"><div class="section-title"><div><h3>AI providers</h3><p>Available through your server-side Gateway key.</p></div><span class="badge">${providers.length} supported</span></div>${providers.map(p=>`<div class="provider-row"><span class="provider-avatar" style="--provider:${p.color}">${p.mark}</span><span class="provider-info"><strong>${p.name}</strong><small>${p.desc}</small></span><span class="badge">${(state.catalog[p.id]||[]).length?'Ready':'Setup key'}</span></div>`).join('')}</div><div class="settings-section"><div class="section-title"><div><h3>Backup & access</h3><p>Keep a portable copy of your conversations.</p></div></div><div class="backup-row"><div class="backup-symbol">${icon('cloud',18)}</div><div class="provider-info"><strong>Google Drive backup</strong><small>Save an export you control</small></div><button class="connect-button secondary" data-action="backup">Export</button></div><div class="inline-tip">Google Drive can store a backup; it cannot run this server or provide protected model access.</div></div><div class="settings-footer">Offline access is available for saved conversations and drafts. Live model replies need an internet connection.</div></section></div>`;
  if(state.modal==='search')return `<div class="modal-backdrop" data-action="dismiss"><section class="modal search-modal" role="dialog" aria-modal="true"><div class="searchbox">${icon('search')}<input id="searchInput" placeholder="Search conversations…" autofocus><kbd>ESC</kbd></div><div class="search-results">${state.threads.map(t=>`<button data-thread="${esc(t.id)}"><span>${icon('search',16)}</span><span><strong>${esc(t.title)}</strong><small>${esc(t.messages[0]?.text.slice(0,88)||'')}</small></span>${icon('arrow',15)}</button>`).join('')}</div></section></div>`;
  if(state.modal==='confirm')return `<div class="modal-backdrop" data-action="dismiss"><section class="modal confirm-modal" role="dialog" aria-modal="true"><div class="modal-head"><div><div class="eyebrow">REVIEW BEFORE SHARING</div><h2>Prepare a post</h2></div><button class="icon-button" data-action="dismiss">${icon('close')}</button></div><p class="modal-explainer">Your text stays as a draft. Nothing will be posted until you connect a publishing app and approve the final action there.</p><textarea id="postDraft" rows="7">${esc(state.modal.text||'')}</textarea><div class="modal-actions"><button class="text-button" data-action="dismiss">Keep chatting</button><button class="primary-button" data-action="save-post">Save as draft</button></div></section></div>`;
  return '';
 }
 function toast(text){state.toast=text;render();setTimeout(()=>{state.toast='';render()},2200)}
 function attachEvents(){
- document.querySelectorAll('[data-provider]').forEach(button=>button.onclick=()=>{state.provider=button.dataset.provider;persist();render()});
+ document.querySelectorAll('[data-provider]').forEach(button=>button.onclick=()=>{state.provider=button.dataset.provider;state.autoRoute=false;persist();render()});
+ document.querySelector('[data-auto-route]')?.addEventListener('click',()=>{state.autoRoute=true;persist();render()});
+ const modelSelect=document.querySelector('#modelSelect');modelSelect?.addEventListener('change',()=>{state.selectedModels[state.provider]=modelSelect.value;persist()});
  document.querySelectorAll('[data-thread]').forEach(button=>button.onclick=()=>{state.active=button.dataset.thread;state.modal=null;persist();render()});
  document.querySelectorAll('[data-prompt]').forEach(button=>button.onclick=()=>{const input=document.querySelector('#prompt');input.value=button.dataset.prompt;input.focus();resizeInput(input)});
  document.querySelectorAll('[data-action]').forEach(button=>button.onclick=(event)=>{const action=button.dataset.action;if(action==='dismiss'&&event.target!==button)return;
@@ -92,8 +118,30 @@ function attachEvents(){
 }
 function shortcut(e){if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();state.modal=null;render();document.querySelector('#prompt')?.focus()}else if(e.key==='Escape'&&state.modal){state.modal=null;render()}}
 function resizeInput(input){input.style.height='auto';input.style.height=Math.min(input.scrollHeight,150)+'px'}
-function sendMessage(){const input=document.querySelector('#prompt'),text=input?.value.trim();if(!text)return;const thread=getThread();thread.messages.push({role:'user',text});if(thread.title==='New conversation')thread.title=text.length>30?text.slice(0,30)+'…':text;thread.provider=state.provider;persist();render();setTimeout(()=>{const active=getThread();active.messages.push({role:'assistant',text:state.online?demoReplies[state.provider]:`You’re offline right now, so I saved your message here as a draft. Reconnect to send it to ${model(state.provider).name}.`,provider:state.provider});persist();render();document.querySelector('#chatScroll').scrollTop=999999},500)}
+async function sendMessage(){
+ const input=document.querySelector('#prompt'),text=input?.value.trim();if(!text)return;
+ const route=state.autoRoute?chooseRoute(text):null;
+ if(state.autoRoute&&state.gatewayConfigured&&!route){toast('No model is available for this task yet.');return}
+ if(route){state.provider=route.provider;state.selectedModels[route.provider]=route.model;state.lastRoute={...route};}
+ const provider=route?.provider||state.provider,thread=getThread(),modelId=route?.model||selectedModel();
+ thread.messages.push({role:'user',text});if(thread.title==='New conversation')thread.title=text.length>30?text.slice(0,30)+'…':text;thread.provider=provider;persist();
+ if(!state.online){render();toast('Offline: your message is saved as a draft.');return}
+ if(!state.gatewayConfigured||!modelId){render();toast('Set AI_GATEWAY_API_KEY on the OneChat server to enable live models.');return}
+ const assistant={role:'assistant',text:'',provider,modelName:modelId};thread.messages.push(assistant);persist();render();
+ const textArea=document.querySelector('#prompt');if(textArea)textArea.disabled=true;
+ try{
+  const response=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider,model:modelId,messages:thread.messages.filter(m=>m.role==='user'||m.role==='assistant').slice(0,-1).slice(-30).map(m=>({role:m.role,content:m.text}))})});
+  if(!response.ok){const result=await response.json().catch(()=>({}));throw new Error(result.error||'The model request failed.')}
+  const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='',answer='';
+  while(true){const {value,done}=await reader.read();if(done)break;buffer+=decoder.decode(value,{stream:true});const lines=buffer.split('\n');buffer=lines.pop()||'';for(const line of lines){if(!line.startsWith('data:'))continue;const data=line.slice(5).trim();if(!data||data==='[DONE]')continue;try{const event=JSON.parse(data);answer+=event.choices?.[0]?.delta?.content||''}catch{} }
+   assistant.text=answer;const bubble=document.querySelector(`[data-message="${thread.messages.length-1}"] .message-text`);if(bubble){bubble.textContent=answer;bubble.style.whiteSpace='pre-wrap'}persist();document.querySelector('#chatScroll').scrollTop=999999;
+  }
+  assistant.text=answer||'(The model returned an empty response.)';
+ }catch(error){assistant.text=error.message||'The model request failed.';assistant.modelName='Connection status';}
+ persist();render();document.querySelector('#chatScroll').scrollTop=999999;
+}
 function exportBackup(){const data=JSON.stringify({format:'onechat-backup',version:1,exportedAt:new Date().toISOString(),threads:state.threads},null,2);const blob=new Blob([data],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`onechat-backup-${new Date().toISOString().slice(0,10)}.json`;a.click();URL.revokeObjectURL(url);state.modal=null;toast('Backup downloaded. Add encryption before storing it in Drive.')}
 window.addEventListener('online',()=>{state.online=true;render()});window.addEventListener('offline',()=>{state.online=false;render()});
 if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('/sw.js').catch(()=>{}));
 render();
+loadCatalog();
