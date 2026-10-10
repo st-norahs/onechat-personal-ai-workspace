@@ -1,8 +1,21 @@
 {
-  "name": "onechat-personal-ai-workspace",
-  "version": "0.1.0",
+  "name": "salt-personal-ai-workspace",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=20.12" },
-  "scripts": { "start": "node --env-file-if-exists=.env server.mjs", "build": "node --check src/main.js && node --check server.mjs && node --check sw.js" }
+  "engines": {
+    "node": ">=20.12"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server.mjs",
+    "build": "node scripts/build.mjs && node --check server.mjs && node --check sw.js"
+  },
+  "dependencies": {
+    "@mlc-ai/web-llm": "0.2.85",
+    "@modelcontextprotocol/client": "^2.3.1",
+    "three": "0.186.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
 }

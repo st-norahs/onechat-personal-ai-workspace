@@ -1,43 +1,64 @@
-# OneChat
+# Salt
 
-OneChat is a personal, local-first workspace for conversations across AI providers. It has a progressive web app shell, local history, offline draft mode, export, and an optional server-side Vercel AI Gateway connection for live models.
+Salt is a local-first AI chat and coding workspace. This repository contains the app shell; hosted model calls use the server-side Vercel AI Gateway, and the optional small local model runs in the browser after its first download.
 
 ## Run locally
 
-1. Install Node.js 20.12 or later.
-2. (Optional, for live AI) Run `Copy-Item .env.example .env` in PowerShell, then put your own `AI_GATEWAY_API_KEY` from the Vercel AI Gateway dashboard in `.env`.
-3. Run `npm run start` and open `http://localhost:4173`.
+Requirements: Node.js 20.12 or newer.
 
-Without a Gateway key, OneChat still works for local chat drafts and history, but it does not invent demo model answers. The server reads the key from `.env`; the browser never receives it. The key grants billable model access, so keep `.env` private. The server binds to `127.0.0.1` for local use.
+```powershell
+npm install
+npm run build
+npm start
+```
 
-The service worker and offline cache work on localhost and HTTPS. Browser storage is device-specific and can be cleared by the browser. Backups are encrypted in the browser with AES-GCM-256 and a PBKDF2-HMAC-SHA-256 key derived using 600,000 iterations before download; store the passphrase separately. Import asks before replacing the conversations on the current device. Local browser storage is still not encrypted against someone who can access your unlocked device or browser profile. Drive upload is manual; OneChat does not yet connect to Drive or sync automatically.
+Open <http://localhost:4173>. To enable hosted providers, add `AI_GATEWAY_API_KEY` to a local `.env` file. For Drive backup sync, create a Google OAuth **Web application** client ID, enable the Google Drive API, add `http://localhost:4173`, `http://localhost:4174`, and the HTTPS deployment origin to its authorized JavaScript origins, then add `GOOGLE_CLIENT_ID` to `.env`. Never commit `.env`; `.gitignore` excludes it. The Gateway key remains server-side. Local development workspace execution also requires Docker Desktop with its engine running. Code containers are restricted and run without network access by default; dependency installs require an explicit user action.
 
-Auto routing is a transparent keyword-based task heuristic: research and current-information prompts prefer Perplexity, code prompts prefer Claude, image/audio prompts prefer Gemini, reasoning prompts prefer OpenAI, and writing prompts prefer Claude. It then ranks the currently available models by catalog names. Review the selected provider and model above the conversation; choosing a provider pill overrides Auto. This is a practical default, not an independent benchmark of model quality.
+## Voice mode
 
-## Current features
+The first time you open voice mode on a browser profile, choose **Enroll voice** and say the displayed phrase twice. Salt keeps a compact MFCC audio-feature profile in that browser’s local storage; the enrollment recordings are analyzed in memory and discarded. Future entries prompt for the phrase and compare it locally. To use another device or browser profile, enroll there too. Use **Forget this voiceprint** to remove the saved profile.
 
-- Chat workspace with six provider choices: OpenAI, Anthropic, Google Gemini, xAI, DeepSeek, and Perplexity.
-- Live model catalog and streamed chat via Vercel AI Gateway when configured.
-- Dark interface and Auto routing by task; manual provider/model selection remains available.
-- Conversation list, new chat, search, copy, mobile layout, and offline status.
-- Encrypted backup export/import for moving conversations between devices.
-- PWA shell caching and local browser storage.
-- Review-before-sharing draft flow. No account sign-up, publishing, or external action happens in this prototype.
+This is an experimental convenience match, not secure authentication. Similar voices or a recording may pass, and microphone changes may reject the enrolled speaker. Do not use it to protect sensitive information. Speech transcription is separate and only starts in browsers that support local speech recognition; supported browsers may need a one-time language-pack download.
 
-## Security and hosting boundaries
+## Avatar library
 
-Google Drive is suitable for storing a backup file, but it does not run this app's server and is not a secure secret manager. A static app hosted in Drive cannot safely hold provider API keys. The optional Gateway connection sends prompts through Vercel AI Gateway and then to the selected model provider; their service terms and data handling apply. For a hosted deployment, keep keys in the host's secret store, add user authentication, enforce per-user provider allowlists and rate limits, and avoid logging prompts or keys. Only request the permissions needed for each integration.
+The local `avatar-data/` folder has `portraits/`, `outfits/`, `hairstyles/`, `gestures/`, `speech/`, and `references/` subfolders. Drop supported media into a folder or add it in **Voice mode → Avatar studio**. Salt scans the library every 20 seconds while voice mode is open, switches to a newly added look, and caches served assets for offline use. Supported uploads are PNG/JPEG/WebP/GIF images, MP4/WebM gesture clips, and MP3/WAV/OGG/M4A speech clips, up to 8 MB each. Broken or missing media falls back to the animated 3D avatar. Files stay in `avatar-data/`, which is ignored by Git so personal images are not included in a public repository.
 
-No app can honestly promise that it cannot be hacked. A responsible release needs dependency updates, security review, backups, abuse controls, and a recovery plan. Offline mode can display saved conversations and accept drafts; online model inference and external app actions require network access. Cross-device sync requires an authenticated sync service or an encrypted file you move between devices.
+### Daily outfit studio
 
-## Suggested next milestones
+Open **Voice → Avatar studio → Outfit of the day**. Select a theme, clothing style, hair, accessory, background, and a saved identity reference. The supplied weekly showcase is a collage; use **Prepare a single-person identity reference** to crop its central Salt portrait before image editing. The reference is sent to Vercel AI Gateway only after a parent unlocks controls and approves the request. The current server-side default is `openai/gpt-image-2`; requests use AI Gateway’s image-edit endpoint. Model edits can still change facial details, so review each result. Parent controls use a PIN/passphrase of at least eight characters; a salted scrypt hash is stored locally in ignored `avatar-data/parent-controls.json`, and an unlock expires after 15 minutes. A parent can set a daily image limit from 1–10; the default is one per UTC day. Successful images are content-hash cached, deduplicated, validated, limited to 8 MB, and saved in the local outfits folder. Failed attempts and successes are counted for the current UTC day. Approved favorites/history are device-local; upload/media saves can trigger an encrypted Drive snapshot when a session key and Drive token are active.
 
-1. Add authenticated user sessions and redacted logs before making the backend public.
-2. Add optional encryption for local browser storage and automatic Drive backup/sync.
-3. Add shared prompts, side-by-side answers, research folders, citations, file ingestion, and model-specific tools.
-4. Add OAuth integrations individually, with scopes shown to the user and confirmation before publishing or changing accounts.
-5. Deploy the static PWA over HTTPS and the API separately. Drive can be an optional backup destination through the Google Drive API.
+Image generation sends the selected reference image and outfit prompt to Vercel AI Gateway and its routed provider. It is not offline. Keep the Gateway key server-side and review the provider’s image/privacy terms before using a child’s photo. This local loopback PIN is a parental speed bump, not a substitute for operating-system sign-in or a hardened hosted authentication service.
 
-## Model catalog
+## Data and deployment
 
-The model selector loads current models from the Gateway catalog instead of relying on hard-coded model names. Availability depends on Gateway access, provider routing, and model availability. See [Gateway API docs](https://vercel.com/docs/ai-gateway/openai-compat/rest-api) and [Gateway authentication](https://vercel.com/docs/ai-gateway/authentication-and-byok).
+Drive sync is user initiated from **Settings → Google Drive workspace sync**. Salt encrypts chats, preferences, avatar media, and supported text files from coding projects in the browser with a passphrase before uploading a replaceable backup file to a visible `Salt Workspace` Drive folder. The OAuth access token is memory-only and requests the `drive.file` scope. Restore downloads the encrypted file and asks for the passphrase; chat history is replaced, while project and avatar files are merged and same-named files overwritten. Archives are capped at 40 MB plaintext, 12 MB avatar media, and 10 MB project text; hidden files, generated folders, and binary project files are omitted. Voice profiles, provider keys, offline model weights, dependencies, and Salt app source are excluded. Keep Salt's source in Git and deploy the built PWA to an HTTPS host; Drive is storage and sync, not an application server or installer. The local offline model and dependencies must be downloaded on each device. When a hosted model is selected, prompts pass through the configured AI Gateway and then to the selected model provider. Review those providers’ policies before sending sensitive content. The public repository contains no app secrets; provide your own server-side key for hosted model access.
+
+## Media and web search
+
+Open **Media & web search** in the sidebar. Web and movie searches open Google in a new tab. Enter a movie title before using the movie shortcut; it searches for official streaming, rental, and purchase options. **Public-domain films & videos** searches for downloadable works labeled as public domain or Creative Commons. Search results are external and Salt does not verify licenses or source safety.
+
+To locate a scene in your own collection, choose a screenshot and up to 30 local video files. Salt samples frames in the browser, computes a rough visual similarity score, and returns likely timestamps. The selected files stay in the browser; this is an approximate visual match, not face recognition or a guaranteed result. It skips files over 2 GB.
+
+For a video you have permission to download, the app can transcode a local file to a 720p or 480p WebM copy using the browser's MediaRecorder. This is local processing; it may take the length of the video, can fail on unsupported browsers/codecs, and may not retain subtitles or every audio track. A direct URL download is only a browser handoff: the app does not crawl arbitrary sites, bypass DRM/paywalls, or fetch copyrighted movies from unauthorized sources. Use licensed public-domain/Creative Commons files, a creator's download, or official watch/rent/buy services.
+
+## Email, LinkedIn, and scheduled drafts
+
+Open **Create & publish** or choose **Use in a post** below an assistant response. Drafts, recipient addresses, and schedule times are stored in this browser and included in encrypted Salt workspace backups. Email opens the device's `mailto:` handler for a final review. LinkedIn copies the draft and opens LinkedIn; paste it into LinkedIn and publish there. No post or email is sent by saving a draft.
+
+Schedules are local reminders, not background publishing: Salt marks a scheduled draft **ready for review** while the app is open. It cannot send at a future time when the browser or machine is closed. For direct publishing, connect a trusted publishing MCP server and explicitly call its publishing tool. Review its access scopes and tool behavior; remote platforms still enforce their own API, account, and rate limits, so Salt cannot promise unlimited posting or emailing.
+
+## Windows: Vercel AI Gateway key
+
+`npx vercel ai-gateway setup` configures supported coding agents on the machine; it does not fill Salt's project `.env` file. On Windows PowerShell, from the Salt repository root:
+
+```powershell
+Copy-Item .env.example .env
+notepad .env
+```
+
+In Notepad, replace the placeholder on `AI_GATEWAY_API_KEY=...` with a newly created key from the Vercel AI Gateway dashboard, save the file, and restart Salt with `npm start`. Keep `.env` local; `.gitignore` excludes it. If a key was pasted into a shell transcript, chat, or public repo, revoke it and create a replacement before use.
+
+## MCP app connections
+
+Open **Settings & connections → MCP connections**. Remote servers must use HTTPS and have a public network address; paste any bearer token only into the connection form. Local stdio servers require you to check the trust confirmation because they run a program as your Windows user. Connections and tokens live in server memory and are cleared when Salt stops. Salt lists the server's tools, resources, and prompts; choose and confirm each action manually. A tool may change data or publish externally, so inspect its description and arguments before running it. The MCP feature does not make every app compatible; each service needs its own MCP server or supported connector.
