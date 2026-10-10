@@ -12,7 +12,7 @@ npm run build
 npm start
 ```
 
-Open <http://localhost:4173>. To enable hosted providers, add `AI_GATEWAY_API_KEY` to a local `.env` file. For Drive backup sync, create a Google OAuth **Web application** client ID, enable the Google Drive API, add `http://localhost:4173`, `http://localhost:4174`, and the HTTPS deployment origin to its authorized JavaScript origins, then add `GOOGLE_CLIENT_ID` to `.env`. Never commit `.env`; `.gitignore` excludes it. The Gateway key remains server-side. Local development workspace execution also requires Docker Desktop with its engine running. Code containers are restricted and run without network access by default; dependency installs require an explicit user action.
+Open <http://localhost:4173>. To enable hosted providers, add `AI_GATEWAY_API_KEY` to a local `.env` or `.env.txt` file. If both exist, `.env.txt` takes precedence. For Drive backup sync, create a Google OAuth **Web application** client ID, enable the Google Drive API, add `http://localhost:4173`, `http://localhost:4174`, and the HTTPS deployment origin to its authorized JavaScript origins, then add `GOOGLE_CLIENT_ID` to an env file. Never commit either env file; `.gitignore` excludes them. The Gateway key remains server-side. Local development workspace execution also requires Docker Desktop with its engine running. Code containers are restricted and run without network access by default; dependency installs require an explicit user action.
 
 ## Voice mode
 
@@ -57,7 +57,7 @@ Copy-Item .env.example .env
 notepad .env
 ```
 
-In Notepad, replace the placeholder on `AI_GATEWAY_API_KEY=...` with a newly created key from the Vercel AI Gateway dashboard, save the file, and restart Salt with `npm start`. Keep `.env` local; `.gitignore` excludes it. If a key was pasted into a shell transcript, chat, or public repo, revoke it and create a replacement before use.
+In Notepad, set `AI_GATEWAY_API_KEY=...` in `.env` or `.env.txt` with a newly created key from the Vercel AI Gateway dashboard, save the file, and restart Salt with `npm start`. `.env.txt` wins if both files exist. Keep both files local; `.gitignore` excludes them. If a key was pasted into a shell transcript, chat, or public repo, revoke it and create a replacement before use.
 
 ## MCP app connections
 

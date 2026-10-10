@@ -7,7 +7,7 @@
     "node": ">=20.12"
   },
   "scripts": {
-    "start": "node --env-file-if-exists=.env server.mjs",
+    "start": "node --env-file-if-exists=.env --env-file-if-exists=.env.txt server.mjs",
     "build": "node scripts/build.mjs && node --check server.mjs && node --check sw.js"
   },
   "dependencies": {

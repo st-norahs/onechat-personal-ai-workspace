@@ -31,6 +31,7 @@ const maxBytes = 8 * 1024 * 1024;
 const outfitModel = process.env.SALT_IMAGE_MODEL || 'openai/gpt-image-2';
 const dailyGenerationLimit = Math.max(1, Math.min(10, Number.parseInt(process.env.SALT_AVATAR_DAILY_LIMIT || '1', 10) || 1));
 const jobs = new Map();
+let usageQueue = Promise.resolve();
 const themes = new Set(['princess','traditional Nigerian fashion','school style','fantasy','sportswear','cozy day','creative artist']);
 const styles = new Set(['classic','colorful','traditional Nigerian','school uniform','fantasy','sporty','cozy']);
 const hairstyles = new Set(['keep current hairstyle','natural braids','two puff buns','twists','headband style','short natural style']);
@@ -39,6 +40,7 @@ const backgrounds = new Set(['keep current background','school garden','sunny pa
 const generationFile = join(avatarDataRoot, 'generation-usage.json');
 const parentFile = join(avatarDataRoot, 'parent-controls.json');
 const parentSessions = new Map();
+const parentUnlockAttempts = new Map();
 
 async function usageForToday() {
   try {
@@ -50,6 +52,16 @@ async function saveUsage(usage) {
   const temp = `${generationFile}.${randomBytes(6).toString('hex')}.tmp`;
   await writeFile(temp, JSON.stringify(usage), { flag:'wx' });
   try { await rename(temp, generationFile); } catch (error) { await rm(temp, { force:true }); throw error; }
+}
+async function updateUsage(update) {
+  const operation = usageQueue.then(async () => {
+    const usage = await usageForToday();
+    update(usage);
+    await saveUsage(usage);
+    return usage;
+  });
+  usageQueue = operation.catch(() => {});
+  return operation;
 }
 function validateGeneration(body) {
   if (!body || typeof body !== 'object' || typeof body.reference !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$/.test(body.reference)) throw Object.assign(new Error('Choose a saved Salt reference image.'), { status:400 });
@@ -79,15 +91,21 @@ async function generateOutfit(body) {
   const fingerprint = createHash('sha256').update(reference).update(JSON.stringify(request)).digest('hex');
   const filename = `salt-generated-${fingerprint.slice(0,24)}.png`;
   const target = join(avatarDataRoot, 'outfits', filename);
-  const currentUsage = await usageForToday(),limit=currentUsage.limit||dailyGenerationLimit;
-  if (currentUsage.count >= limit && !(await lstat(target).catch(()=>null))) throw Object.assign(new Error(`Today's image budget is used (${currentUsage.count}/${limit}). A parent can adjust the daily limit in Parent controls.`), { status:429 });
   const cached = await lstat(target).catch(()=>null);
-  if (cached?.isFile() && cached.size <= maxBytes) return { asset:{ name:filename, url:`/avatar/outfits/${filename}`, type:'image/png', size:cached.size, cached:true }, usage:{ used:currentUsage.count, limit, remaining:Math.max(0,limit-currentUsage.count) } };
+  if (cached?.isFile() && cached.size <= maxBytes) {
+    const currentUsage=await usageForToday(),limit=currentUsage.limit||dailyGenerationLimit;
+    return { asset:{ name:filename, url:`/avatar/outfits/${filename}`, type:'image/png', size:cached.size, cached:true }, usage:{ used:currentUsage.count, limit, remaining:Math.max(0,limit-currentUsage.count) } };
+  }
   if (jobs.has(fingerprint)) return jobs.get(fingerprint);
+  const currentUsage = await usageForToday(),limit=currentUsage.limit||dailyGenerationLimit;
+  if (currentUsage.count >= limit) throw Object.assign(new Error(`Today's image budget is used (${currentUsage.count}/${limit}). A parent can adjust the daily limit in Parent controls.`), { status:429 });
   const promise = (async()=>{
-    const usage = await usageForToday();
+    const usage = await updateUsage(current => {
+      const requestLimit = current.limit || dailyGenerationLimit;
+      if (current.count >= requestLimit) throw Object.assign(new Error(`Today's image budget is used (${current.count}/${requestLimit}). A parent can adjust the daily limit in Parent controls.`), { status:429 });
+      current.count++;
+    });
     const requestLimit=usage.limit||dailyGenerationLimit;
-    if (usage.count >= requestLimit) throw Object.assign(new Error(`Today's image budget is used (${usage.count}/${requestLimit}). A parent can adjust the daily limit in Parent controls.`), { status:429 });
     const safeText = `Edit the supplied image to create one child-safe daily outfit portrait for the same child. Preserve the child's exact facial identity, age-appropriate appearance, skin tone, facial features, and natural proportions. Keep the child fully clothed. Do not change facial identity or make the child look older. Outfit theme: ${body.theme}. Clothing style: ${body.style}. Hairstyle: ${body.hairstyle}. Accessory: ${body.accessory}. Background: ${body.background}. Keep the framing, expression, and pose close to the reference. Photorealistic, warm, respectful, age-appropriate. No text, logos, revealing clothing, adult styling, makeup, or suggestive poses.`;
     const form = new FormData();
     form.append('model', outfitModel);
@@ -95,22 +113,27 @@ async function generateOutfit(body) {
     form.append('output_format', 'png');
     form.append('image', new Blob([reference], { type:type.mime }), body.reference);
     const started = Date.now();
-    let response;
-    try { response = await fetch('https://ai-gateway.vercel.sh/v1/images/edits', { method:'POST', headers:{ Authorization:`Bearer ${process.env.AI_GATEWAY_API_KEY}` }, body:form, signal:AbortSignal.timeout(120000) }); }
-    catch { usage.failures++; await saveUsage(usage); throw Object.assign(new Error('Image service could not be reached. Your reference stays in the local library; try again when online.'), { status:502 }); }
-    if (!response.ok) { usage.failures++; await saveUsage(usage); throw Object.assign(new Error(response.status===429?'Image service rate limit reached. Try again later.':`Image generation failed (${response.status}). No outfit was saved.`), { status:response.status===429?429:502 }); }
-    const result = await response.json();
-    const imageData = result?.data?.[0]?.b64_json;
-    if (typeof imageData !== 'string' || imageData.length > Math.ceil(maxBytes*4/3)+16) { usage.failures++; await saveUsage(usage); throw Object.assign(new Error('Image service returned an unsupported or oversized result.'), { status:502 }); }
-    const output = Buffer.from(imageData, 'base64');
-    const png = mediaTypes['.png'];
-    if (!output.length || output.length > maxBytes || output.toString('base64').replace(/=+$/,'')!==imageData.replace(/=+$/,'') || !png.signature(output.subarray(0,16))) { usage.failures++; await saveUsage(usage); throw Object.assign(new Error('Generated image failed validation and was not saved.'), { status:502 }); }
-    await ensureAvatarLibrary();
-    const temp = `${target}.${randomBytes(8).toString('hex')}.tmp`;
-    await writeFile(temp, output, { flag:'wx' });
-    try { await rename(temp,target); } catch (error) { await rm(temp,{force:true}); if (!(await lstat(target).catch(()=>null))) throw error; }
-    usage.count++; usage.successes++; usage.lastDurationMs=Date.now()-started; await saveUsage(usage);
-    return { asset:{ name:filename, url:`/avatar/outfits/${filename}`, type:'image/png', size:output.length, cached:false }, usage:{ used:usage.count, limit:requestLimit, remaining:Math.max(0,requestLimit-usage.count) } };
+    try {
+      let response;
+      try { response = await fetch('https://ai-gateway.vercel.sh/v1/images/edits', { method:'POST', headers:{ Authorization:`Bearer ${process.env.AI_GATEWAY_API_KEY}` }, body:form, signal:AbortSignal.timeout(120000) }); }
+      catch { throw Object.assign(new Error('Image service could not be reached. Your reference stays in the local library; try again when online.'), { status:502 }); }
+      if (!response.ok) throw Object.assign(new Error(response.status===429?'Image service rate limit reached. Try again later.':`Image generation failed (${response.status}). No outfit was saved.`), { status:response.status===429?429:502 });
+      const result = await response.json();
+      const imageData = result?.data?.[0]?.b64_json;
+      if (typeof imageData !== 'string' || imageData.length > Math.ceil(maxBytes*4/3)+16) throw Object.assign(new Error('Image service returned an unsupported or oversized result.'), { status:502 });
+      const output = Buffer.from(imageData, 'base64');
+      const png = mediaTypes['.png'];
+      if (!output.length || output.length > maxBytes || output.toString('base64').replace(/=+$/,'')!==imageData.replace(/=+$/,'') || !png.signature(output.subarray(0,16))) throw Object.assign(new Error('Generated image failed validation and was not saved.'), { status:502 });
+      await ensureAvatarLibrary();
+      const temp = `${target}.${randomBytes(8).toString('hex')}.tmp`;
+      await writeFile(temp, output, { flag:'wx' });
+      try { await rename(temp,target); } catch (error) { await rm(temp,{force:true}); if (!(await lstat(target).catch(()=>null))) throw error; }
+      const completed = await updateUsage(current => { current.successes++; current.lastDurationMs=Date.now()-started; });
+      return { asset:{ name:filename, url:`/avatar/outfits/${filename}`, type:'image/png', size:output.length, cached:false }, usage:{ used:completed.count, limit:requestLimit, remaining:Math.max(0,requestLimit-completed.count) } };
+    } catch (error) {
+      await updateUsage(current => { current.failures++; });
+      throw error.status ? error : Object.assign(new Error('Image generation failed and no new outfit was confirmed saved.'), { status:502 });
+    }
   })();
   jobs.set(fingerprint,promise);
   try { return await promise; } finally { jobs.delete(fingerprint); }
@@ -152,12 +175,19 @@ export async function handleAvatarApi(req,pathname,readJson,send,checkOrigin) {
     const token=randomBytes(32).toString('base64url');parentSessions.set(token,Date.now()+15*60*1000);return send(201,{token,expiresIn:900});
   }
   if(req.method==='POST'&&pathname==='/api/avatar/parent/unlock') {
-    checkOrigin(req);const body=await readJson(req,4096);return send(200,{token:await issueParentSession(body.pin),expiresIn:900});
+    checkOrigin(req);
+    const address=req.socket.remoteAddress||'local',now=Date.now(),windowMs=15*60*1000;
+    let attempt=parentUnlockAttempts.get(address);
+    if(!attempt||attempt.startedAt+windowMs<=now)attempt={startedAt:now,count:0};
+    if(attempt.count>=5)throw Object.assign(new Error('Too many PIN attempts. Wait 15 minutes before trying again.'),{status:429});
+    attempt.count++;parentUnlockAttempts.set(address,attempt);
+    const body=await readJson(req,4096),token=await issueParentSession(body.pin);
+    parentUnlockAttempts.delete(address);return send(200,{token,expiresIn:900});
   }
   if(req.method==='POST'&&pathname==='/api/avatar/parent/limit') {
     checkOrigin(req);if(!parentSession(req.headers['x-salt-parent-token']))throw Object.assign(new Error('Unlock Parent controls again to change the image budget.'),{status:401});
     const body=await readJson(req,4096);if(!Number.isInteger(body.limit)||body.limit<1||body.limit>10)throw Object.assign(new Error('Choose a daily image limit from 1 to 10.'),{status:400});
-    const usage=await usageForToday();usage.limit=body.limit;await saveUsage(usage);return send(200,{limit:body.limit,used:usage.count,remaining:Math.max(0,body.limit-usage.count)});
+    const usage=await updateUsage(current=>{current.limit=body.limit;});return send(200,{limit:body.limit,used:usage.count,remaining:Math.max(0,body.limit-usage.count)});
   }
   if(req.method==='POST'&&pathname==='/api/avatar/generate') {
     checkOrigin(req);if(!parentSession(req.headers['x-salt-parent-token']))return send(401,{error:'Unlock Parent controls before requesting an outfit image.'});
