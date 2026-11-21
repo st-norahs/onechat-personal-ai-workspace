@@ -19,5 +19,5 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
-      - run:  pm run build
-      - run:  pm test --if-present
+      - run: npm run build
+      - run: npm test --if-present
