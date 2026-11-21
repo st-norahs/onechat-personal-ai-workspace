@@ -43,11 +43,34 @@ async function api(req, res, pathname) {
     } catch (error) { return send(error.status || 502, { error: error.message }); }
   }
   if (req.method !== 'POST' || pathname !== '/api/chat') return send(404, { error: 'Not found.' });
+
+  // Origin validation
   const origin = req.headers.origin;
-  const allowedOrigins = new Set([`http://localhost:${port}`, `http://127.0.0.1:${port}`]);
-  if (!allowedOrigins.has(origin) || !allowedOrigins.has(`http://${req.headers.host}`)) return send(403, { error: 'Requests must come from this OneChat origin.' });
+  const host = req.headers.host;
+  if (origin) {
+    try {
+      const originUrl = new URL(origin);
+      // If APP_ORIGIN is set, only allow that exact origin
+      const appOrigin = process.env.APP_ORIGIN;
+      if (appOrigin) {
+        if (origin !== appOrigin) return send(403, { error: 'Requests must come from this OneChat origin.' });
+      } else {
+        // Accept only the exact same origin as the incoming Host
+        const expectedOrigin = `${originUrl.protocol}//${host}`;
+        if (origin !== expectedOrigin) return send(403, { error: 'Requests must come from this OneChat origin.' });
+      }
+    } catch {
+      return send(400, { error: 'Invalid Origin header.' });
+    }
+  } else {
+    // For local development (no origin header), allow localhost and 127.0.0.1 over http
+    // Check if it's a local request by checking the Host header
+    const isLocalHost = host === 'localhost' || host === '127.0.0.1' || host.startsWith('localhost:') || host.startsWith('127.0.0.1:');
+    if (!isLocalHost) return send(403, { error: 'Requests must come from this OneChat origin.' });
+  }
+
   const now = Date.now();
-  while (chatRequests.length && chatRequests[0] < now - 10 * 60 * 1000) chatRequests.shift();
+  while (chatRequests.length && chatRequests[0] > now - 10 * 60 * 1000) chatRequests.shift();
   if (chatRequests.length >= 30) return send(429, { error: 'Local chat limit reached. Try again in a few minutes.' });
   try {
     const body = await readJson(req);
@@ -89,5 +112,10 @@ const server = createServer(async (req, res) => {
     res.end(body);
   } catch { res.writeHead(400); res.end('Bad request'); }
 });
+
+// Server binding: 0.0.0.0 in production, 127.0.0.1 for local dev
 const port = Number(process.env.PORT || 4173);
-server.listen(port, '127.0.0.1', () => console.log(`OneChat is available at http://localhost:${port}`));
+const host = process.env.HOST;
+const isProduction = Boolean(process.env.PORT) || process.env.NODE_ENV === 'production';
+const bindAddress = host || (isProduction ? '0.0.0.0' : '127.0.0.1');
+server.listen(port, bindAddress, () => console.log(`OneChat is available at http://${bindAddress}:${port}`));
